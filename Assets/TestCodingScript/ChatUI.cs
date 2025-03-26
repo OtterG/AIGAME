@@ -1,28 +1,42 @@
-﻿// ✅ 这是一个完整的 Unity 聊天界面脚本（支持 TextMeshPro）
-// UI 要求：
-// - TMP_InputField 命名为 inputField
-// - Button 命名为 sendButton
-// - TextMeshProUGUI 命名为 chatHistoryText
-
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.Networking;
-using TMPro;
 using System.Collections;
 using System.Text.RegularExpressions;
 
 public class ChatUI : MonoBehaviour
 {
-    public TMP_InputField inputField;         // 输入框（TMP）
-    public Button sendButton;                 // 发送按钮
-    public TextMeshProUGUI chatHistoryText;   // 聊天记录显示（TMP）
+    public InputField inputField;
+    public Button sendButton;
+    public Text sendButtonText;
+    public Text chatHistoryText;
+    public ScrollRect chatScroll; // 🆕 滚动区域
 
     private const string apiUrl = "http://localhost:11434/api/generate";
     private const string modelName = "deepseek-r1:32b";
 
     void Start()
     {
-        sendButton.onClick.AddListener(OnSendClicked);
+     
+
+        if (sendButton != null)
+            sendButton.onClick.AddListener(OnSendClicked);
+        else
+            Debug.LogError("❌ Send Button 未挂载！");
+
+        if (inputField != null)
+            inputField.onEndEdit.AddListener(HandleEnterKey); // 🆕 回车监听
+
+        if (sendButtonText != null)
+            sendButtonText.text = "发送";
+    }
+
+    void HandleEnterKey(string text)
+    {
+        if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
+        {
+            OnSendClicked();
+        }
     }
 
     void OnSendClicked()
@@ -33,6 +47,7 @@ public class ChatUI : MonoBehaviour
             chatHistoryText.text += "\n🧑 你：" + userInput;
             inputField.text = "";
             StartCoroutine(CallLocalAI(userInput));
+            ScrollToBottom(); // 🆕 发送后滚动
         }
     }
 
@@ -60,6 +75,17 @@ public class ChatUI : MonoBehaviour
         else
         {
             chatHistoryText.text += "\n❌ 请求失败：" + request.error;
+        }
+
+        ScrollToBottom(); // 🆕 回复后滚动
+    }
+
+    void ScrollToBottom()
+    {
+        if (chatScroll != null)
+        {
+            Canvas.ForceUpdateCanvases();
+            chatScroll.verticalNormalizedPosition = 0f;
         }
     }
 }

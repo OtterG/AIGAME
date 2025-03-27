@@ -1,5 +1,4 @@
-﻿// ✅ NPCDialogueManager.cs（适配本地 Ollama generate 接口 + 修复匿名类序列化）
-using System.Collections;
+﻿using System.Collections;
 using UnityEngine;
 using UnityEngine.Networking;
 using System.Text;
@@ -13,24 +12,21 @@ public class NPCDialogueManager : MonoBehaviour
     private string apiUrl = "http://localhost:11434/api/generate";
     public string model = "deepseek-r1:32b"; // 根据你实际运行的模型名修改
 
-    public IEnumerator SendMessageToAI(string playerInput, System.Action<string> onReply)
+    public IEnumerator SendMessageToAI(string prompt, System.Action<string> onReply, bool extractFinalQuote = true)
     {
-        memory.Add("user", playerInput);
-
-        string fullPrompt = PromptBuilder.BuildRawPrompt(profile, memory, playerInput);
-
-        // ✅ 使用可序列化类替代匿名对象
+        // ✅ 构造本地请求体（使用 prompt 字段）
         OllamaRequest requestData = new OllamaRequest
         {
             model = model,
-            prompt = fullPrompt,
+            prompt = prompt,
             stream = false
         };
 
         string jsonBody = JsonUtility.ToJson(requestData);
-        Debug.Log("玩家接触NPC:\n");
 
-        UnityWebRequest request = new UnityWebRequest(apiUrl, "POST");
+        Debug.Log("📤 发送请求体:\n" + jsonBody);
+
+        var request = new UnityWebRequest(apiUrl, "POST");
         byte[] bodyRaw = Encoding.UTF8.GetBytes(jsonBody);
         request.uploadHandler = new UploadHandlerRaw(bodyRaw);
         request.downloadHandler = new DownloadHandlerBuffer();
@@ -40,46 +36,58 @@ public class NPCDialogueManager : MonoBehaviour
 
         if (request.result == UnityWebRequest.Result.Success)
         {
-            string responseJson = request.downloadHandler.text;
+            string response = request.downloadHandler.text;
+            Debug.Log("📩 原始AI响应:\n" + response);
 
-            Match match = Regex.Match(responseJson, "\"response\":\"(.*?)\"", RegexOptions.Singleline);
-            string reply = match.Success ? match.Groups[1].Value : "（未找到 response 字段）";
-            reply = Regex.Unescape(reply)
-            .Replace("<think>", "")
-            .Replace("</think>", "")
-            .Trim();
+            string reply = "";
 
-            // ✅ 正则提取最后一句引号内内容（中文优先）
-            Match finalQuote = Regex.Match(reply, "“([^”]{5,})”"); // 中文书名号
-            if (finalQuote.Success)
+            try
             {
-                reply = finalQuote.Groups[1].Value;
+                var responseJson = JsonUtility.FromJson<OllamaResponse>(response);
+                reply = responseJson.response.Trim();
             }
-            else
+            catch
             {
-                // 如果没用中文书名号，就退而求其次提取普通引号内的句子
-                Match fallback = Regex.Match(reply, "\"([^\"]{5,})\"");
-                if (fallback.Success)
-                    reply = fallback.Groups[1].Value;
+                Debug.LogWarning("⚠️ 无法解析 AI 回复 JSON：\n" + response);
+                reply = "[无回复]";
             }
 
+            if (extractFinalQuote)
+            {
+                Match finalQuote = Regex.Match(reply, "“([^”]{5,})”");
+                if (finalQuote.Success)
+                {
+                    reply = finalQuote.Groups[1].Value;
+                }
+                else
+                {
+                    Match fallback = Regex.Match(reply, "\"([^\"]{5,})\"");
+                    if (fallback.Success)
+                        reply = fallback.Groups[1].Value;
+                }
+            }
 
-            memory.Add("assistant", reply);
+            Debug.Log("🧠 AI 回复内容:\n" + reply);
             onReply?.Invoke(reply);
         }
         else
         {
-            Debug.LogError("🛑 Ollama DeepSeek 请求失败：" + request.error);
-            onReply?.Invoke("我好像思考卡住了……过会儿再来找我吧！");
+            Debug.LogError("❌ 请求失败: " + request.error);
+            onReply?.Invoke("对不起，我现在无法回应……");
         }
     }
-}
 
-// ✅ Ollama 请求数据结构（用于 JsonUtility.ToJson）
-[System.Serializable]
-public class OllamaRequest
-{
-    public string model;
-    public string prompt;
-    public bool stream;
+    [System.Serializable]
+    public class OllamaRequest
+    {
+        public string model;
+        public string prompt;
+        public bool stream;
+    }
+
+    [System.Serializable]
+    public class OllamaResponse
+    {
+        public string response;
+    }
 }
